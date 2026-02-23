@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from app.services.email_topic_inference import EmailTopicInferenceService
 from app.dataclasses import Email
 
@@ -17,6 +17,7 @@ class EmailWithTopicRequest(BaseModel):
 
 class EmailClassificationResponse(BaseModel):
     predicted_topic: str
+    method: Optional[str]=None
     topic_scores: Dict[str, float]
     features: Dict[str, Any]
     available_topics: List[str]
@@ -32,8 +33,13 @@ async def classify_email(request: EmailRequest):
         email = Email(subject=request.subject, body=request.body)
         result = inference_service.classify_email(email)
         
+        predicted=result["predicted_topic"]
+        topicname= predicted["topic"] if isinstance(predicted, dict) else predicted
+        methodused= predicted.get("method", "topic_model") if isinstance(predicted, dict) else "topic_model"
+        
         return EmailClassificationResponse(
-            predicted_topic=result["predicted_topic"],
+            predicted_topic=topicname,
+            method=methodused,
             topic_scores=result["topic_scores"],
             features=result["features"],
             available_topics=result["available_topics"]

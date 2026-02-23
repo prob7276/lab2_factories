@@ -1,7 +1,7 @@
 import os
 import json
 import numpy as np
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from sentence_transformers import SentenceTransformer
 
 class EmailClassifierModel:
@@ -16,6 +16,10 @@ class EmailClassifierModel:
 
         # Pre-compute embeddings for all topic descriptions
         self.topic_embeddings = self._compute_topic_embeddings()
+        
+        #stored emails
+        self.emailspath='/home/ec2-user/environment/lab2_factories/data/emails.json'
+        
     
     def _load_topic_data(self) -> Dict[str, Dict[str, Any]]:
         """Load topic data from data/topic_keywords.json"""
@@ -32,8 +36,46 @@ class EmailClassifierModel:
             topic_embeddings[topic] = embedding
         return topic_embeddings
     
-    def predict(self, features: Dict[str, Any]) -> str:
-        """Classify email into one of the topics using feature similarity"""
+    
+    #new function for similarity check, low theshold to trigger other method
+    def _check_stored_similarlity(self, email_embedding: np.ndarray, threshold:float=.1) -> Optional[str]:
+        """compare current email against stored emails"""
+        if not os.path.exists(self.emailspath):
+            return None
+            
+        with open(self.emailspath, 'r') as f:
+            storedemails=json.load(f)
+            
+        for item in storedemails:
+            storedembedding=self.model.encode(item['content'], convert_to_numpy=True)
+            
+            #I haven't learned how to do this in AI class yet but I know what it is
+            #in many ways, this class is teaching more about AI than my AI class
+            # Manual cosine similarity
+            dot = np.dot(email_embedding, storedembedding)
+            norm = np.linalg.norm(email_embedding) * np.linalg.norm(storedembedding)
+            sim = dot / norm if norm != 0 else 0
+
+            if sim > threshold:
+                return item.get('groundtruth')
+        
+        return None
+    
+    
+    def predict(self, features: Dict[str, Any], use_similarity: bool=True) -> Dict[str, Any]:
+        """Classify email into one of the topics using most similar emails from stored emails. Defaults back to feature similarity"""
+        
+        #current email embedding
+        email_embedding = features.get("email_embeddings_average_embedding", None)
+        if isinstance(email_embedding, list):
+            email_embedding = np.array(email_embedding)
+            
+        #similarity check
+        if use_similarity and email_embedding is not None:
+            similarlabel=self._check_stored_similarlity(email_embedding)
+            if similarlabel:
+                return {"topic": similarlabel, "method": 'similar email'}
+    
         scores = {}
         
         # Calculate similarity scores for each topic based on features
@@ -41,7 +83,10 @@ class EmailClassifierModel:
             score = self._calculate_topic_score(features, topic)
             scores[topic] = score
         
-        return max(scores, key=scores.get)
+        predicted_topic = max(scores, key=scores.get)
+        return {"topic": predicted_topic, "method": 'topic_model'}
+        
+        
     
     def get_topic_scores(self, features: Dict[str, Any]) -> Dict[str, float]:
         """Get classification scores for all topics"""
